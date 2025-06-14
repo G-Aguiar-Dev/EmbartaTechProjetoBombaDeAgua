@@ -41,6 +41,8 @@
 
 ssd1306_t ssd;                          // Variável para o display LCD 
 static float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
+volatile bool estado_display = false;   // Estado do display OLED
+volatile bool estado_bomba = false;     // Estado do LED
 
 double led_buffer[25][3] = {0};         // Buffer para armazenar o estado dos LEDs
 
