@@ -147,7 +147,7 @@ void vPollingTask(void *pvParameters)
 
 
 //------------------------------------------------MAIN------------------------------------------------
-void main(void)
+int main()
 {
     stdio_init_all();               // Inicializa a saída padrão (UART)
     sleep_ms(2000);                 // Aguarda 2 segundos para estabilização
