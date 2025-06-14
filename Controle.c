@@ -38,6 +38,7 @@
 #define endereco 0x3C
 
 //-------------------------------------------Variáveis Globais-------------------------------------------
+
 ssd1306_t ssd;                          // Variável para o display LCD 
 static float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
 
@@ -125,6 +126,12 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
 static err_t connection_callback(void *arg, struct tcp_pcb *newpcb, err_t err);
 
 static void start_http_server(void);
+
+void pwm_setup(uint8_t GPIO);
+
+uint matrix_rgb(float r, float g, float b);
+
+void desenho_pio(double desenho[25][3], uint32_t valor_led, PIO pio, uint sm);
 
 //-----------------------------------------------Tasks------------------------------------------------
 
@@ -345,4 +352,35 @@ static void start_http_server(void)
     pcb = tcp_listen(pcb);
     tcp_accept(pcb, connection_callback);
     printf("Servidor HTTP rodando na porta 80...\n");
+}
+
+// Configura PWM para um GPIO específico
+void pwm_setup(uint8_t GPIO) {
+  gpio_set_function(GPIO, GPIO_FUNC_PWM); // Define função PWM para o pino
+  uint slice_num = pwm_gpio_to_slice_num(GPIO); // Obtém o número do slice
+  pwm_config config = pwm_get_default_config(); // Configuração padrão
+  pwm_config_set_wrap(&config, 4095); // Wrap em 4095 para 12 bits
+  pwm_init(slice_num, &config, true); // Inicializa PWM
+}
+
+// Função para converter RGB em um valor de 32 bits
+uint matrix_rgb(float r, float g, float b) 
+{
+  unsigned char R, G, B;
+  R = r * 255;
+  G = g * 255;
+  B = b * 255;
+  return (G << 24) | (R << 16) | (B << 8);
+}
+
+// Função para desenhar na matriz
+#define NUM_PIXELS 25
+void desenho_pio(double desenho[25][3], uint32_t valor_led, PIO pio, uint sm)
+{
+
+  for (int16_t i = 0; i < NUM_PIXELS; i++)
+  {
+    valor_led = matrix_rgb(desenho[i][0], desenho[i][1], desenho[i][2]);
+    pio_sm_put_blocking(pio, sm, valor_led);
+  };
 }
