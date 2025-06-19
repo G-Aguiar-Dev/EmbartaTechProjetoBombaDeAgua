@@ -24,11 +24,12 @@
 #include "font.h"                   // Biblioteca de fontes para o display OLED
 
 //-------------------------------------------Definições-------------------------------------------
-#define WIFI_SSID "Seu SSID"
-#define WIFI_PASS "Sua Senha"
+#define WIFI_SSID "Michele Aguiar"
+#define WIFI_PASS "#AZUL0713"
 
-#define LED_PIN_BLUE 12
+#define BOMBA 99 // Temporário
 #define BOTAO_A 5
+#define BOTAO_B 6
 #define BOTAO_JOY 22
 #define JOYSTICK_X 26
 #define JOYSTICK_Y 27
@@ -41,6 +42,7 @@
 
 ssd1306_t ssd;                          // Variável para o display LCD 
 static float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
+static uint8_t volume_agua = 0;         // Variável para armazenar o volume de água (0-100%)
 volatile bool estado_display = false;   // Estado do display OLED
 volatile bool estado_bomba = false;     // Estado do LED
 
@@ -62,7 +64,7 @@ struct http_state
 
 //-------------------------------------------HTML-------------------------------------------
 const char HTML_BODY[] =
-    "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Controle do LED</title>"
+    "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Sistema de Monitoramento de Água</title>"
     "<style>"
     "body { font-family: sans-serif; text-align: center; padding: 10px; margin: 0; background: #f9f9f9; }"
     ".botao { font-size: 20px; padding: 10px 30px; margin: 10px; border: none; border-radius: 8px; }"
@@ -72,67 +74,71 @@ const char HTML_BODY[] =
 
     ".preenchimento { height: 100%; transition: width 0.3s ease; }"
     "#barra_x { background: #2196F3; }"
-    "#barra_y { background:rgb(177, 96, 153); }"
     ".label { font-weight: bold; margin-bottom: 5px; display: block; }"
     ".bolinha { width: 20px; height: 20px; border-radius: 50%; display: inline-block; margin-left: 10px; background: #ccc; transition: background 0.3s ease; }"
-    "@media (max-width: 600px) { .botao { width: 80%; font-size: 18px; } }"
+    "@media (max-width: 600px) { .botaoA { width: 80%; font-size: 18px; } } { .botaoB { width: 80%; font-size: 18px; } }"
     "</style>"
     "<script>"
-    "function sendCommand(cmd) { fetch('/led/' + cmd); }"
+    "function sendCommand(cmd) { fetch('/bomba/' + cmd); }"
     "function atualizar() {"
     "  fetch('/estado').then(res => res.json()).then(data => {"
-    "    document.getElementById('estado').innerText = data.led ? 'Ligado' : 'Desligado';"
+    "    document.getElementById('estado').innerText = data.bomba ? 'Ligado' : 'Desligado';"
     "    document.getElementById('x_valor').innerText = data.x;"
-    "    document.getElementById('y_valor').innerText = data.y;"
-    "    document.getElementById('botao').innerText = data.botao ? 'Pressionado' : 'Solto';"
-    "    document.getElementById('joy').innerText = data.joy ? 'Pressionado' : 'Solto';"
-    "    document.getElementById('bolinha_a').style.background = data.botao ? '#2126F3' : '#ccc';"
-    "    document.getElementById('bolinha_joy').style.background = data.joy ? '#4C7F50' : '#ccc';"
+    "    document.getElementById('botaoA').innerText = data.botaoA ? 'Ligado' : 'Desligado';"
+    "    document.getElementById('botaoB').innerText = data.botaoB ? 'Ligado' : 'Desligado';"
+    "    document.getElementById('joy').innerText = data.joy ? 'Ligado' : 'Desligado';"
+    "    document.getElementById('bolinha_a').style.background = data.botaoA ? '#2126F3' : '#ccc';"
+    "    document.getElementById('bolinha_b').style.background = data.botaoB ? '#2126F3' : '#ccc';"
+    "    document.getElementById('bolinha_joy').style.background = data.joy ? '#2126F3' : '#ccc';"
     "    document.getElementById('barra_x').style.width = Math.round(data.x / 4095 * 100) + '%';"
-    "    document.getElementById('barra_y').style.width = Math.round(data.y / 4095 * 100) + '%';"
     "  });"
     "}"
     "setInterval(atualizar, 1000);"
     "</script></head><body>"
 
-    "<h1>Controle do LED</h1>"
+    "<h1>Controle da Bomba</h1>"
 
-    "<p>Estado do LED: <span id='estado'>--</span></p>"
+    "<p>Estado da Bomba: <span id='estado'>--</span></p>"
 
-    "<p class='label'>Joystick X: <span id='x_valor'>--</span></p>"
+    "<p class='label'>Nível de Água no Reservatório: <span id='x_valor'>--</span></p>"
     "<div class='barra'><div id='barra_x' class='preenchimento'></div></div>"
 
-    "<p class='label'>Joystick Y: <span id='y_valor'>--</span></p>"
-    "<div class='barra'><div id='barra_y' class='preenchimento'></div></div>"
-
-    "<p class='label'>Botão A: <span id='botao'>--</span> <span id='bolinha_a' class='bolinha'></span></p>"
-    "<p class='label'>Botão do Joystick: <span id='joy'>--</span> <span id='bolinha_joy' class='bolinha'></span></p>"
-
+    "<p class='label'>Botão A: <span id='botaoA'>--</span> <span id='bolinha_a' class='bolinha'></span></p>"
+    "<p class='label'>Botão B: <span id='botaoB'>--</span> <span id='bolinha_b' class='bolinha'></span></p>"
+    "<p class='label'>Botão do Joystick (Acionamento da Bomba): <span id='joy'>--</span> <span id='bolinha_joy' class='bolinha'></span></p>"
     "<button class='botao on' onclick=\"sendCommand('on')\">Ligar</button>"
     "<button class='botao off' onclick=\"sendCommand('off')\">Desligar</button>"
 
     "<hr style='margin-top: 20px;'>"
     "<p style='font-size: 15px; color: #336699; font-style: italic; max-width: 90%; margin: 10px auto;'>"
-    "Utilização da BitDogLab para exemplificar a comunicação via rede Wi-Fi utilizando o protocolo HTML com JavaScript"
+    "Sistema de Controle de Bomba de Água e Monitoramento de Nível de Reservatório<br>"
     "</p>"
 
     "</body></html>";
 //---------------------------------------------Protótipos---------------------------------------------
 
+// Função de configuração inicial
 void setup(void);
 
+// Função de callback para enviar dados HTTP
 static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
 
+// Função de callback para receber dados HTTP
 static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 
+// Função de callback para aceitar novas conexões TCP
 static err_t connection_callback(void *arg, struct tcp_pcb *newpcb, err_t err);
 
+// Função para iniciar o servidor HTTP
 static void start_http_server(void);
 
+// Configura PWM para um GPIO específico
 void pwm_setup(uint8_t GPIO);
 
+// Função para converter RGB em um valor de 32 bits
 uint matrix_rgb(float r, float g, float b);
 
+// Função para desenhar na matriz
 void desenho_pio(double desenho[25][3], uint32_t valor_led, PIO pio, uint sm);
 
 //-----------------------------------------------Tasks------------------------------------------------
@@ -147,16 +153,72 @@ void vPollingTask(void *pvParameters)
     }
 }
 
+// Task para exibir informações no display LCD
+void vDisplayTask(void *pvParameters)
+{
+    bool cor = true;                                                        // Variável para alternar a cor do display
+    char *ip_str = (char *)pvParameters;                                    // Recebe o IP como parâmetro
+    char volume_str[8];
+    snprintf(volume_str, sizeof(volume_str), "%d", *(int *)(&volume_agua));
+
+    while (true)
+    {
+        if (estado_display)     // Verifica se a flag está ativa, exibe informações sobre a rede
+        {
+            ssd1306_fill(&ssd, !cor);
+            ssd1306_line(&ssd, 0, 0, WIDTH - 1, 0, cor);                    // Linha no topo
+            ssd1306_line(&ssd, 0, HEIGHT - 1, WIDTH - 1, HEIGHT - 1, cor);  // Linha na base
+            ssd1306_line(&ssd, 0, 0, 0, HEIGHT - 1, cor);                   // Linha na esquerda
+            ssd1306_line(&ssd, WIDTH - 1, 0, WIDTH - 1, HEIGHT - 1, cor);   // Linha na direita
+            ssd1306_line(&ssd, 0, 12, WIDTH - 1, 12, cor);                  // Linha horizontal
+            ssd1306_line(&ssd, 0, 29, WIDTH - 1, 29, cor);                  // Linha horizontal
+            ssd1306_line(&ssd, 0, 43, WIDTH - 1, 43, cor);                  // Linha horizontal
+            ssd1306_draw_string(&ssd, "WiFi:", 5, 3);
+            ssd1306_draw_string(&ssd, WIFI_SSID, 5, 19);
+            ssd1306_draw_string(&ssd, "Endereco IP:", 5, 33);
+            ssd1306_draw_string(&ssd, ip_str, 5, 52);
+            ssd1306_send_data(&ssd);
+
+            vTaskDelay(1000);                                               // Aguarda 1s para atualizar o display
+        }
+        else                    // Se a flag estiver desativada, exibe o estado da bomba e o volume de água
+        {
+            ssd1306_fill(&ssd, !cor);
+            ssd1306_line(&ssd, 0, 0, WIDTH - 1, 0, cor);                    // Linha no topo
+            ssd1306_line(&ssd, 0, HEIGHT - 1, WIDTH - 1, HEIGHT - 1, cor);  // Linha na base
+            ssd1306_line(&ssd, 0, 0, 0, HEIGHT - 1, cor);                   // Linha na esquerda
+            ssd1306_line(&ssd, WIDTH - 1, 0, WIDTH - 1, HEIGHT - 1, cor);   // Linha na direita
+            ssd1306_line(&ssd, 0, 12, WIDTH - 1, 12, cor);                  // Linha horizontal
+            ssd1306_line(&ssd, 0, 29, WIDTH - 1, 29, cor);                  // Linha horizontal
+            ssd1306_line(&ssd, 0, 43, WIDTH - 1, 43, cor);                  // Linha horizontal
+            ssd1306_draw_string(&ssd, "Est. da Bomba:", 5, 3);
+            if (estado_bomba)   // Se a bomba estiver ligada, exibe "Ligada", caso contrário, exibe "Desligada"
+            {
+                ssd1306_draw_string(&ssd, "Ligada", 5, 19);
+            }
+            else
+            {
+                ssd1306_draw_string(&ssd, "Desligada", 5, 19);
+            }
+            ssd1306_draw_string(&ssd, "Vol. de Agua:", 5, 33); 
+            ssd1306_draw_string(&ssd, volume_str, 5, 52);                   // Exibe o volume de água em porcentagem
+            ssd1306_draw_string(&ssd, "/100", 22, 52);
+            ssd1306_send_data(&ssd);
+
+            vTaskDelay(200);                                                // Aguarda 200 ms para atualizar o display
+        }
+    }
+}
 
 //------------------------------------------------MAIN------------------------------------------------
 int main()
 {
-    stdio_init_all();               // Inicializa a saída padrão (UART)
-    sleep_ms(2000);                 // Aguarda 2 segundos para estabilização
+    stdio_init_all();                                   // Inicializa a saída padrão (UART)
+    sleep_ms(2000);                                     // Aguarda 2 segundos para estabilização
 
-    setup();                        // Configurações iniciais
+    setup();                                            // Configurações iniciais
 
-    if (cyw43_arch_init())          // Inicializa o Wi-fi
+    if (cyw43_arch_init())                              // Inicializa o Wi-fi
     {
         ssd1306_fill(&ssd, false);
         ssd1306_draw_string(&ssd, "WiFi => FALHA", 0, 0);
@@ -164,7 +226,7 @@ int main()
         return 1;
     }
 
-    cyw43_arch_enable_sta_mode();   // Habilita o modo Station do Wi-Fi
+    cyw43_arch_enable_sta_mode();                       // Habilita o modo Station do Wi-Fi
     if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 10000))
     {
         ssd1306_fill(&ssd, false);
@@ -182,10 +244,18 @@ int main()
     ssd1306_draw_string(&ssd, ip_str, 0, 10);
     ssd1306_send_data(&ssd);
 
-    start_http_server();            // Inicia o servidor HTTP
+    start_http_server();                                // Inicia o servidor HTTP
+
+    char *ip_str_param = malloc(strlen(ip_str) + 1);    // Aloca memória para o IP string
+    if (!ip_str_param) {
+        printf("Erro ao alocar memória para o IP string\n");
+        return 1; // Retorna erro se não conseguir alocar memória
+    }
+    strcpy(ip_str_param, ip_str);   // Copia o IP string para a memória alocada
 
     //Tasks
     xTaskCreate(vPollingTask, "Polling Task", 256, NULL, 1, NULL); 
+    xTaskCreate(vDisplayTask, "Display Task", 256, ip_str_param, 1, NULL); // Cria a task de display
 
     vTaskStartScheduler();          // Inicia o escalonador do FreeRTOS
     panic_unsupported();            // Se o escalonador falhar, entra em pânico
@@ -194,13 +264,18 @@ int main()
 //----------------------------------------------Funções------------------------------------------------
 // Função de configuração inicial
 void setup(void){
-    
-    gpio_init(LED_PIN_BLUE);
-    gpio_set_dir(LED_PIN_BLUE, GPIO_OUT);
+
+    gpio_init(BOMBA);                // Inicializa o GPIO da bomba
+    gpio_set_dir(BOMBA, GPIO_OUT);   // Define o GPIO como saída
+    gpio_put(BOMBA, 0);              // Desliga a bomba inicialmente
 
     gpio_init(BOTAO_A);
     gpio_set_dir(BOTAO_A, GPIO_IN);
     gpio_pull_up(BOTAO_A);
+
+    gpio_init(BOTAO_B);
+    gpio_set_dir(BOTAO_B, GPIO_IN);
+    gpio_pull_up(BOTAO_B);
 
     gpio_init(BOTAO_JOY);
     gpio_set_dir(BOTAO_JOY, GPIO_IN);
@@ -216,7 +291,6 @@ void setup(void){
     gpio_pull_up(I2C_SDA_DISP);
     gpio_pull_up(I2C_SCL_DISP);
 
-    ssd1306_t ssd;
     ssd1306_init(&ssd, WIDTH, HEIGHT, false, endereco, I2C_PORT_DISP);
     ssd1306_config(&ssd);
     ssd1306_fill(&ssd, false);
@@ -257,9 +331,9 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     }
     hs->sent = 0;
 
-    if (strstr(req, "GET /led/on"))
+    if (strstr(req, "GET /bomba/on"))
     {
-        gpio_put(LED_PIN_BLUE, 1);
+        gpio_put(BOMBA, 1);
         const char *txt = "Ligado";
         hs->len = snprintf(hs->response, sizeof(hs->response),
                            "HTTP/1.1 200 OK\r\n"
@@ -270,9 +344,9 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
                            "%s",
                            (int)strlen(txt), txt);
     }
-    else if (strstr(req, "GET /led/off"))
+    else if (strstr(req, "GET /bomba/off"))
     {
-        gpio_put(LED_PIN_BLUE, 0);
+        gpio_put(BOMBA, 0);
         const char *txt = "Desligado";
         hs->len = snprintf(hs->response, sizeof(hs->response),
                            "HTTP/1.1 200 OK\r\n"
@@ -285,17 +359,16 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     }
     else if (strstr(req, "GET /estado"))
     {
-        adc_select_input(0);
-        uint16_t x = adc_read();
-        adc_select_input(1);
-        uint16_t y = adc_read();
-        int botao = !gpio_get(BOTAO_A);
+        adc_select_input(2);
+        uint16_t x = adc_read() / 4095 * 100; // Lê o valor do ADC e converte para porcentagem (0-100%)
+        int botaoA = !gpio_get(BOTAO_A);
+        int botaoB = !gpio_get(BOTAO_B);
         int joy = !gpio_get(BOTAO_JOY);
 
         char json_payload[96];
         int json_len = snprintf(json_payload, sizeof(json_payload),
-                                "{\"led\":%d,\"x\":%d,\"y\":%d,\"botao\":%d,\"joy\":%d}\r\n",
-                                gpio_get(LED_PIN_BLUE), x, y, botao, joy);
+                                "{\"bomba\":%d,\"x\":%d,\"botaoA\":%d,\"botaoB\":%d,\"joy\":%d}\r\n",
+                                gpio_get(BOMBA), x, botaoA, botaoB, joy);
 
         printf("[DEBUG] JSON: %s\n", json_payload);
 
