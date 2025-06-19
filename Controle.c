@@ -24,8 +24,8 @@
 #include "font.h"                   // Biblioteca de fontes para o display OLED
 
 //-------------------------------------------Definições-------------------------------------------
-#define WIFI_SSID "Michele Aguiar"
-#define WIFI_PASS "#AZUL0713"
+#define WIFI_SSID "SEU SSID"
+#define WIFI_PASS "SUA SENHA"
 
 #define BOMBA 99 // Temporário
 #define BOTAO_A 5
