@@ -36,6 +36,7 @@
 #define I2C_SDA_DISP 14
 #define I2C_SCL_DISP 15
 #define endereco 0x3C
+#define BUZZER_PIN 21
 
 //-------------------------------------------Variáveis Globais-------------------------------------------
 
@@ -121,6 +122,8 @@ const char HTML_BODY[] =
 
 void setup(void);
 
+void acionar_bomba();
+
 static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
 
 static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
@@ -147,6 +150,59 @@ void vPollingTask(void *pvParameters)
     }
 }
 
+/* Tarefa para tocar o buzzer com pwm */
+void vBuzzerTask()
+{
+    uint slice = pwm_gpio_to_slice_num(BUZZER_PIN);
+    uint chan = pwm_gpio_to_channel(BUZZER_PIN);
+    uint wrap = 125000000 / 3500; // Frequência base: 3.5kHz (ajuste conforme o buzzer)
+
+    pwm_set_wrap(slice, wrap);
+    pwm_set_enabled(slice, true);
+
+    while (true)
+    {
+        adc_select_input(2);  // Canal do sensor de nível de água
+        uint16_t nivel_da_agua = adc_read();  // Valor de 0 a 4095
+
+        // Converta para percentual
+        float percentual = (nivel_da_agua / 4095.0f) * 100.0f;
+
+        if (percentual < 30.0f)
+        {
+            pwm_set_gpio_level(BUZZER_PIN, 0);  // Buzzer desligado
+            vTaskDelay(pdMS_TO_TICKS(500));     // Espera meio segundo
+        }
+        else if (percentual < 60.0f)
+        {
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga o buzzer
+            vTaskDelay(pdMS_TO_TICKS(500));            // Liga por 500ms
+            pwm_set_gpio_level(BUZZER_PIN, 0);         // Desliga
+            vTaskDelay(pdMS_TO_TICKS(500));            // Espera
+        }
+        else if (percentual < 90.0f)
+        {
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga
+            vTaskDelay(pdMS_TO_TICKS(100));            // Liga por 100ms
+            pwm_set_gpio_level(BUZZER_PIN, 0);         // Desliga
+            vTaskDelay(pdMS_TO_TICKS(100));            // Espera
+        }
+        else
+        {
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga o buzzer contínuo
+            vTaskDelay(pdMS_TO_TICKS(100));            // Mantém
+        }
+    }
+}
+
+void vBotaoBombaTask(void *pvParameters)
+{
+    while (true)
+    {
+        acionar_bomba();
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
 
 //------------------------------------------------MAIN------------------------------------------------
 int main()
@@ -186,6 +242,8 @@ int main()
 
     //Tasks
     xTaskCreate(vPollingTask, "Polling Task", 256, NULL, 1, NULL); 
+    xTaskCreate(vBuzzerTask, "Task para o buzzer", 256, NULL, 1, NULL); 
+    xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL); 
 
     vTaskStartScheduler();          // Inicia o escalonador do FreeRTOS
     panic_unsupported();            // Se o escalonador falhar, entra em pânico
@@ -205,6 +263,8 @@ void setup(void){
     gpio_init(BOTAO_JOY);
     gpio_set_dir(BOTAO_JOY, GPIO_IN);
     gpio_pull_up(BOTAO_JOY);
+    
+    pwm_setup(BUZZER_PIN);
 
     adc_init();
     adc_gpio_init(JOYSTICK_X);
@@ -223,6 +283,19 @@ void setup(void){
     ssd1306_draw_string(&ssd, "Iniciando Wi-Fi", 0, 0);
     ssd1306_draw_string(&ssd, "Aguarde...", 0, 30);    
     ssd1306_send_data(&ssd);
+}
+
+// Faz a leitura da GPIO 22 para acionar a bomba
+void acionar_bomba()
+{
+    if (!gpio_get(BOTAO_JOY))  
+    {
+        estado_bomba = true;    
+    }
+    else
+    {
+        estado_bomba = false;
+    }
 }
 
 // Função de callback para enviar dados HTTP
