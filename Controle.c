@@ -18,15 +18,15 @@
 #include "hardware/pio.h"           // Biblioteca de PIO
 #include "hardware/clocks.h"        // Biblioteca de clocks
 #include "hardware/pwm.h"           // Biblioteca de hardware para manipulação do PWM
-#include "queue.h"                 // Biblioteca de FreeRTOS para manipulação de filas
+#include "queue.h"                  // Biblioteca de FreeRTOS para manipulação de filas
 
 #include "matriz_LED.pio.h"         // Biblioteca gerada pelo PIO para manipulação de uma matriz de LEDs
 #include "ssd1306.h"                // Biblioteca para manipulação de displays OLED SSD1306
 #include "font.h"                   // Biblioteca de fontes para o display OLED
 
 //-------------------------------------------Definições-------------------------------------------
-#define WIFI_SSID "SEU SSID"
-#define WIFI_PASS "SUA SENHA"
+#define WIFI_SSID "Malu"
+#define WIFI_PASS "11042006!"
 
 #define BOMBA 99 // Temporário
 #define LED_PIN_GREEN 11
@@ -44,6 +44,7 @@
 #define BUZZER_PIN 21
 #define PIXELS 25
 #define SENSOR_NIVEL 28   // Pino ADC conectado ao potenciômetro da boia
+#define LED_MATRIX 7 // Pino GPIO conectado à matriz de LEDs
 
 //-------------------------------------------Variáveis Globais-------------------------------------------
 
@@ -146,7 +147,7 @@ const char HTML_BODY[] =
     "<p class='label'>Nível de Água no Reservatório: <span id='x_valor'>--</span></p>"
     "<div class='barra'><div id='barra_x' class='preenchimento'></div></div>"
 
-    "<p class='label'>Botão A: <span id='botaoA'>--</span> <span id='bolinha_a' class='bolinha'></span></p>"
+    "<p class='label'>Botão A (Mudar Infos Display): <span id='botaoA'>--</span> <span id='bolinha_a' class='bolinha'></span></p>"
     "<p class='label'>Botão B: <span id='botaoB'>--</span> <span id='bolinha_b' class='bolinha'></span></p>"
     "<p class='label'>Botão do Joystick (Acionamento da Bomba): <span id='joy'>--</span> <span id='bolinha_joy' class='bolinha'></span></p>"
     "<button class='botao on' onclick=\"sendCommand('on')\">Ligar</button>"
@@ -258,27 +259,24 @@ void vDisplayTask(void *pvParameters)
 void vLeituraNivelTask(void *pvParameters) {
     adc_select_input(2); // Canal 2 = GPIO28
     while (1) {
-        uint16_t nivel = adc_read();
-        xQueueSend(xFilaNivel, &nivel, portMAX_DELAY); // Envia o valor para a fila
-        vTaskDelay(pdMS_TO_TICKS(500)); // Leitura a cada 500 ms
+        volume_agua = adc_read() / 4095.0 * 100; // Lê o valor do ADC e converte para porcentagem (0-100%)
+        vTaskDelay(pdMS_TO_TICKS(100)); // Leitura a cada 100 ms
     }
 }
 
 void vLedsRGBTask(void *pvParameters) {
-    uint16_t nivel;
     while (1) {
-        if (xQueueReceive(xFilaNivel, &nivel, portMAX_DELAY)) {
-            if (nivel <= 1365) { // Nível Baixo - Verde
-                gpio_put(LED_PIN_GREEN, 1);
-                gpio_put(LED_PIN_RED, 0);
-            } else if (nivel <= 2730) { // Nível Médio - Amarelo
-                gpio_put(LED_PIN_GREEN, 1);
-                gpio_put(LED_PIN_RED, 1);
-            } else { // Nível Alto - Vermelho
-                gpio_put(LED_PIN_GREEN, 0);
-                gpio_put(LED_PIN_RED, 1);
-            }
+        if (volume_agua <= 40) { // Nível Baixo - Verde
+            gpio_put(LED_PIN_GREEN, 1);
+            gpio_put(LED_PIN_RED, 0);
+        } else if (volume_agua <= 80) { // Nível Médio - Amarelo
+            gpio_put(LED_PIN_GREEN, 1);
+            gpio_put(LED_PIN_RED, 1);
+        } else { // Nível Alto - Vermelho (>80%)
+            gpio_put(LED_PIN_GREEN, 0);
+            gpio_put(LED_PIN_RED, 1);
         }
+        vTaskDelay(pdMS_TO_TICKS(100)); // Aguarda 100 ms antes da próxima verificação
     }
 }
 
@@ -324,6 +322,7 @@ void vBuzzerTask()
             pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga o buzzer contínuo
             vTaskDelay(pdMS_TO_TICKS(100));            // Mantém
         }
+        vTaskDelay(pdMS_TO_TICKS(100)); // Aguarda 100 ms antes da próxima leitura
     }
 }
 
@@ -335,7 +334,6 @@ void vBotaoBombaTask(void *pvParameters)
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
-
 
 void vButton_task() {
     while (true) {
@@ -352,25 +350,31 @@ void vButton_task() {
 }
 
 void vMatriz_led_task() {
+/*
+    sm = pio_claim_unused_sm(pio, true); // Requisita um estado de máquina livre
+    matriz_LED_program_init(pio, sm, 0, 0, 1); // Inicializa o PIO com o programa da matriz LED
+    pio_sm_set_enabled(pio, sm, true); // Habilita o estado de máquina
+    pio_sm_put_blocking(pio, sm, matrix_rgb(r, g, b)); // Envia o valor RGB para o PIO
+*/
     while (true) {
         switch (volume_agua) {
         case 0:
-            pio_matrix(COORDENADA_NIVEL_0, 0, pio, sm);
+            desenho_pio(COORDENADA_NIVEL_0, 0, pio, sm);
              vTaskDelay(pdMS_TO_TICKS(500));
             break;
 
         case 1:
-            pio_matrix(COORDENADA_NIVEL_1, 0, pio, sm);
+            desenho_pio(COORDENADA_NIVEL_1, 0, pio, sm);
              vTaskDelay(pdMS_TO_TICKS(500));
             break;
 
         case 2:
-            pio_matrix(COORDENADA_NIVEL_2, 0, pio, sm);
+            desenho_pio(COORDENADA_NIVEL_2, 0, pio, sm);
              vTaskDelay(pdMS_TO_TICKS(500));
             break;
 
         case 3:
-            pio_matrix(COORDENADA_NIVEL_3, 0, pio, sm);
+            desenho_pio(COORDENADA_NIVEL_3, 0, pio, sm);
              vTaskDelay(pdMS_TO_TICKS(500));
             break;
         }
@@ -411,9 +415,6 @@ int main()
     ssd1306_draw_string(&ssd, "WiFi => OK", 0, 0);
     ssd1306_draw_string(&ssd, ip_str, 0, 10);
     ssd1306_send_data(&ssd);
-    
-    // Filas
-    xFilaNivel = xQueueCreate(5, sizeof(uint16_t));
 
     start_http_server();                                // Inicia o servidor HTTP
 
@@ -430,8 +431,9 @@ int main()
     xTaskCreate(vLeituraNivelTask, "LeituraNivel", 256, NULL, 2, NULL);
     xTaskCreate(vLedsRGBTask, "ControleRGB", 256, NULL, 2, NULL);
     xTaskCreate(vBuzzerTask, "Task para o buzzer", 256, NULL, 1, NULL); 
-    xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL); 
-
+    xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL);
+    xTaskCreate(vButton_task, "Task para botões", 256, NULL, 1, NULL);
+    xTaskCreate(vMatriz_led_task, "Task para matriz de LEDs", 256, NULL, 1, NULL);
 
     vTaskStartScheduler();          // Inicia o escalonador do FreeRTOS
     panic_unsupported();            // Se o escalonador falhar, entra em pânico
@@ -445,6 +447,9 @@ void setup(void){
     gpio_set_dir(BOMBA, GPIO_OUT);   // Define o GPIO como saída
     gpio_put(BOMBA, 0);              // Desliga a bomba inicialmente
     
+    gpio_init(LED_MATRIX);          // Inicializa o GPIO da matriz de LEDs
+    gpio_set_dir(LED_MATRIX, GPIO_OUT); // Define o GPIO como saída
+
     gpio_init(LED_PIN_GREEN);
     gpio_set_dir(LED_PIN_GREEN, GPIO_OUT);
 
@@ -561,8 +566,6 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     }
     else if (strstr(req, "GET /estado"))
     {
-        adc_select_input(2);
-        uint16_t x = adc_read() / 4095 * 100; // Lê o valor do ADC e converte para porcentagem (0-100%)
         int botaoA = !gpio_get(BOTAO_A);
         int botaoB = !gpio_get(BOTAO_B);
         int joy = !gpio_get(BOTAO_JOY);
@@ -570,7 +573,7 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
         char json_payload[96];
         int json_len = snprintf(json_payload, sizeof(json_payload),
                                 "{\"bomba\":%d,\"x\":%d,\"botaoA\":%d,\"botaoB\":%d,\"joy\":%d}\r\n",
-                                gpio_get(BOMBA), x, botaoA, botaoB, joy);
+                                gpio_get(BOMBA), volume_agua, botaoA, botaoB, joy);
 
         printf("[DEBUG] JSON: %s\n", json_payload);
 
