@@ -27,7 +27,7 @@
 #define WIFI_SSID "Malu"
 #define WIFI_PASS "11042006!"
 
-#define BOMBA 99 // Temporário
+#define BOMBA 20
 #define LED_PIN_GREEN 11
 #define LED_PIN_BLUE 12
 #define LED_PIN_RED 13
@@ -52,9 +52,9 @@
 
 ssd1306_t ssd;                                   // Variável para o display LCD
 static volatile float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
-static volatile uint8_t volume_agua = 2;        // Variável para armazenar o volume de água (0-100%)
+static volatile uint8_t volume_agua = 0;         // Variável para armazenar o volume de água (0-100%)
 volatile bool estado_display = false;            // Estado do display OLED
-volatile bool estado_bomba = false;              // Estado do LED
+volatile bool estado_bomba = false;              // Estado da bomba
 static uint32_t lastIrqTime = 0;                 // Registra o tempo da ultima interrupcao
 volatile uint8_t ultimoBotaoPressionado = 0;
 volatile bool botaoPressionado = false;
@@ -64,6 +64,9 @@ double led_buffer[25][3] = {0}; // Buffer para armazenar o estado dos LEDs
 
 double apagar_leds[25][3] = // Apagar LEDs da matriz
     {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+
+double COORDENADA_BASE[PIXELS][3] = {
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}};
 
 double COORDENADA_NIVEL_0[PIXELS][3] = {
     {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}};
@@ -307,68 +310,50 @@ void vBuzzerTask()
     }
 }
 
-void vBotaoBombaTask(void *pvParameters)
+void vAcionamentoBombaTask(void *pvParameters)
 {
     while (true)
     {
-        if (ultimoBotaoPressionado == BOTAO_JOY)
+        if (estado_bomba)
         {
-            estado_bomba = !estado_bomba;
-            vTaskDelay(pdMS_TO_TICKS(500));
-            ultimoBotaoPressionado = 0;
+            gpio_put(BOMBA, 0);
         }
+        else
+        {
+            gpio_put(BOMBA, 1);
+        }
+        vTaskDelay(pdMS_TO_TICKS(500)); 
     }
 }
 
-void vButton_task()
+void vMatriz_led_task()
 {
     while (true)
     {
-        if (ultimoBotaoPressionado == BOTAO_A)
+        if (volume_agua == 0)
         {
-            estado_display = !estado_display;
+            desenho_pio(COORDENADA_BASE, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-            ultimoBotaoPressionado = 0;
         }
-        else if (ultimoBotaoPressionado == BOTAO_B)
+        else if (volume_agua > 0 && volume_agua <= 25)
         {
-            estado_bomba = !estado_bomba;
-            vTaskDelay(pdMS_TO_TICKS(500));
-            ultimoBotaoPressionado = 0;
-        }
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
-}
-
-void vMatriz_led_task() {
-/*
-    sm = pio_claim_unused_sm(pio, true); // Requisita um estado de máquina livre
-    matriz_LED_program_init(pio, sm, 0, 0, 1); // Inicializa o PIO com o programa da matriz LED
-    pio_sm_set_enabled(pio, sm, true); // Habilita o estado de máquina
-    pio_sm_put_blocking(pio, sm, matrix_rgb(r, g, b)); // Envia o valor RGB para o PIO
-*/
-    while (true) {
-        switch (volume_agua) {
-        case 0:
             desenho_pio(COORDENADA_NIVEL_0, 0, pio, sm);
-             vTaskDelay(pdMS_TO_TICKS(500));
-            break;
-
-        case 1:
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        else if (volume_agua > 25 && volume_agua <= 50)
+        {
             desenho_pio(COORDENADA_NIVEL_1, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-
-            break;
-
-        case 2:
+        }
+        else if (volume_agua > 50 && volume_agua <= 75)
+        {
             desenho_pio(COORDENADA_NIVEL_2, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-            break;
-
-        case 3:
+        }
+        else if (volume_agua > 75)
+        {
             desenho_pio(COORDENADA_NIVEL_3, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-            break;
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -424,10 +409,9 @@ int main()
     xTaskCreate(vDisplayTask, "Display Task", 256, ip_str_param, 1, NULL); // Cria a task de display
     xTaskCreate(vLeituraNivelTask, "LeituraNivel", 256, NULL, 2, NULL);
     xTaskCreate(vLedsRGBTask, "ControleRGB", 256, NULL, 2, NULL);
+    xTaskCreate(vMatriz_led_task, "Matriz", 256, NULL, 2, NULL);
+    xTaskCreate(vAcionamentoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL);
     xTaskCreate(vBuzzerTask, "Task para o buzzer", 256, NULL, 1, NULL); 
-    xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL);
-    xTaskCreate(vButton_task, "Task para botões", 256, NULL, 1, NULL);
-    xTaskCreate(vMatriz_led_task, "Task para matriz de LEDs", 256, NULL, 1, NULL);
 
     vTaskStartScheduler();          // Inicia o escalonador do FreeRTOS
     panic_unsupported();            // Se o escalonador falhar, entra em pânico
@@ -440,7 +424,7 @@ void setup(void)
 
     gpio_init(BOMBA);              // Inicializa o GPIO da bomba
     gpio_set_dir(BOMBA, GPIO_OUT); // Define o GPIO como saída
-    gpio_put(BOMBA, 0);            // Desliga a bomba inicialmente
+    gpio_put(BOMBA, 1);
 
     gpio_init(BOMBA);                // Inicializa o GPIO da bomba
     gpio_set_dir(BOMBA, GPIO_OUT);   // Define o GPIO como saída
@@ -458,7 +442,8 @@ void setup(void)
     gpio_init(LED_PIN_RED);
     gpio_set_dir(LED_PIN_RED, GPIO_OUT);
 
-    adc_gpio_init(SENSOR_NIVEL);
+    gpio_init(SENSOR_NIVEL);
+    gpio_set_dir(SENSOR_NIVEL, GPIO_IN);
 
     gpio_init(BOTAO_A);
     gpio_set_dir(BOTAO_A, GPIO_IN);
@@ -479,8 +464,7 @@ void setup(void)
     pwm_setup(BUZZER_PIN);
 
     adc_init();
-    adc_gpio_init(JOYSTICK_X);
-    adc_gpio_init(JOYSTICK_Y);
+    adc_gpio_init(SENSOR_NIVEL);
 
     uint offset = pio_add_program(pio, &matriz_LED_program);
     matriz_LED_program_init(pio, sm, offset, WS2812_PIN);
@@ -515,12 +499,12 @@ void gpio_irq_handler(uint gpio, uint32_t events)
     }
     else if (gpio == BOTAO_B)
     {
-        ultimoBotaoPressionado = BOTAO_B;
+        estado_bomba = !estado_bomba;
         botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
     }
     else if (gpio == BOTAO_JOY)
     {
-        ultimoBotaoPressionado = BOTAO_JOY;
+        estado_bomba = !estado_bomba;
         botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
     }
 }
