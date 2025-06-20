@@ -1,4 +1,4 @@
-.program pio_matrix
+.program matriz_LED
 
 .wrap_target
     out x, 1
@@ -15,9 +15,12 @@ cont:
 
 
 % c-sdk {
-static inline void pio_matrix_program_init(PIO pio, uint sm, uint offset, uint pin)
+    #include "hardware/clocks.h"
+    #include "hardware/pio.h"
+
+static inline void matriz_LED_program_init(PIO pio, uint sm, uint offset, uint pin)
 {
-    pio_sm_config c = pio_matrix_program_get_default_config(offset);
+    pio_sm_config c = matriz_LED_program_get_default_config(offset);
 
     // Set pin to be part of set output group, i.e. set by set instruction
     sm_config_set_set_pins(&c, pin, 1);

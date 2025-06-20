@@ -52,6 +52,8 @@ add_executable(${PROJECT_NAME} Controle.c lib/ssd1306.c)
 pico_set_program_name(${PROJECT_NAME} "mqtt_web")
 pico_set_program_version(${PROJECT_NAME} "0.1")
 
+pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/matriz_LED.pio)
+
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
 pico_enable_stdio_usb(${PROJECT_NAME} 1)
@@ -85,7 +87,5 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${PICO_SDK_PATH}/lib/lwip/src/include/arch
     ${PICO_SDK_PATH}/lib/lwip/src/include/lwip
 )
-
-pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/matriz_LED.pio)
 
 pico_add_extra_outputs(${PROJECT_NAME})
