@@ -25,8 +25,8 @@
 #include "font.h"           // Biblioteca de fontes para o display OLED
 
 //-------------------------------------------Definições-------------------------------------------
-#define WIFI_SSID ""
-#define WIFI_PASS ""
+#define WIFI_SSID "Malu"
+#define WIFI_PASS "11042006!"
 
 #define BOMBA 99 // Temporário
 #define LED_PIN_GREEN 11
@@ -34,6 +34,7 @@
 #define LED_PIN_RED 13
 #define BOTAO_A 5
 #define BOTAO_B 6
+#define WS2812_PIN 7
 #define BOTAO_JOY 22
 #define JOYSTICK_X 26
 #define JOYSTICK_Y 27
@@ -50,7 +51,7 @@
 
 ssd1306_t ssd;                                   // Variável para o display LCD
 static volatile float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
-static volatile uint8_t volume_agua = 50;        // Variável para armazenar o volume de água (0-100%)
+static volatile uint8_t volume_agua = 2;        // Variável para armazenar o volume de água (0-100%)
 volatile bool estado_display = false;            // Estado do display OLED
 volatile bool estado_bomba = false;              // Estado do LED
 static uint32_t lastIrqTime = 0;                 // Registra o tempo da ultima interrupcao
@@ -481,6 +482,9 @@ void setup(void)
     adc_init();
     adc_gpio_init(JOYSTICK_X);
     adc_gpio_init(JOYSTICK_Y);
+
+    uint offset = pio_add_program(pio, &matriz_LED_program);
+    matriz_LED_program_init(pio, sm, offset, WS2812_PIN);
 
     i2c_init(I2C_PORT_DISP, 400 * 1000);
     gpio_set_function(I2C_SDA_DISP, GPIO_FUNC_I2C);
