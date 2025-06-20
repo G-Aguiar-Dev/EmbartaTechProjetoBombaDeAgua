@@ -1,32 +1,32 @@
 //-------------------------------------------Bibliotecas-------------------------------------------
-#include <stdio.h>                  // Biblioteca padrão de entrada e saída
-#include <string.h>                 // Biblioteca padrão de manipulação de strings
-#include <ctype.h>                  // Biblioteca padrão de manipulação de caracteres
+#include <stdio.h>  // Biblioteca padrão de entrada e saída
+#include <string.h> // Biblioteca padrão de manipulação de strings
+#include <ctype.h>  // Biblioteca padrão de manipulação de caracteres
 
-#include "pico/stdlib.h"            // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
-#include "pico/cyw43_arch.h"        // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
-#include "pico/unique_id.h"         // Biblioteca com recursos para trabalhar com os pinos GPIO do Raspberry Pi Pico
+#include "pico/stdlib.h"     // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
+#include "pico/cyw43_arch.h" // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
+#include "pico/unique_id.h"  // Biblioteca com recursos para trabalhar com os pinos GPIO do Raspberry Pi Pico
 
-#include "FreeRTOS.h"               // Biblioteca de FreeRTOS
-#include "task.h"                   // Biblioteca de tasks
+#include "FreeRTOS.h" // Biblioteca de FreeRTOS
+#include "task.h"     // Biblioteca de tasks
 
-#include "lwip/tcp.h"               // Biblioteca de LWIP para manipulação de TCP/IP
+#include "lwip/tcp.h" // Biblioteca de LWIP para manipulação de TCP/IP
 
-#include "hardware/gpio.h"          // Biblioteca de hardware de GPIO
-#include "hardware/irq.h"           // Biblioteca de hardware de interrupções
-#include "hardware/adc.h"           // Biblioteca de hardware para conversão ADC
-#include "hardware/pio.h"           // Biblioteca de PIO
-#include "hardware/clocks.h"        // Biblioteca de clocks
-#include "hardware/pwm.h"           // Biblioteca de hardware para manipulação do PWM
-#include "queue.h"                 // Biblioteca de FreeRTOS para manipulação de filas
+#include "hardware/gpio.h"   // Biblioteca de hardware de GPIO
+#include "hardware/irq.h"    // Biblioteca de hardware de interrupções
+#include "hardware/adc.h"    // Biblioteca de hardware para conversão ADC
+#include "hardware/pio.h"    // Biblioteca de PIO
+#include "hardware/clocks.h" // Biblioteca de clocks
+#include "hardware/pwm.h"    // Biblioteca de hardware para manipulação do PWM
+#include "queue.h"           // Biblioteca de FreeRTOS para manipulação de filas
 
-#include "matriz_LED.pio.h"         // Biblioteca gerada pelo PIO para manipulação de uma matriz de LEDs
-#include "ssd1306.h"                // Biblioteca para manipulação de displays OLED SSD1306
-#include "font.h"                   // Biblioteca de fontes para o display OLED
+#include "matriz_LED.pio.h" // Biblioteca gerada pelo PIO para manipulação de uma matriz de LEDs
+#include "ssd1306.h"        // Biblioteca para manipulação de displays OLED SSD1306
+#include "font.h"           // Biblioteca de fontes para o display OLED
 
 //-------------------------------------------Definições-------------------------------------------
-#define WIFI_SSID "SEU SSID"
-#define WIFI_PASS "SUA SENHA"
+#define WIFI_SSID ""
+#define WIFI_PASS ""
 
 #define BOMBA 99 // Temporário
 #define LED_PIN_GREEN 11
@@ -43,58 +43,37 @@
 #define endereco 0x3C
 #define BUZZER_PIN 21
 #define PIXELS 25
-#define SENSOR_NIVEL 28   // Pino ADC conectado ao potenciômetro da boia
+#define SENSOR_NIVEL 28 // Pino ADC conectado ao potenciômetro da boia
+#define DEBOUNCE_MS 500
 
 //-------------------------------------------Variáveis Globais-------------------------------------------
 
-ssd1306_t ssd;                                      // Variável para o display LCD 
-static volatile float r = 0.0, b = 0.0, g = 0.0;    // Variáveis para controlar a cor dos LEDs
-static volatile uint8_t volume_agua = 0;            // Variável para armazenar o volume de água (0-100%)
-volatile bool estado_display = false;               // Estado do display OLED
-volatile bool estado_bomba = false;                 // Estado do LED
+ssd1306_t ssd;                                   // Variável para o display LCD
+static volatile float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
+static volatile uint8_t volume_agua = 0;        // Variável para armazenar o volume de água (0-100%)
+volatile bool estado_display = false;            // Estado do display OLED
+volatile bool estado_bomba = false;              // Estado do LED
+static uint32_t lastIrqTime = 0;                 // Registra o tempo da ultima interrupcao
+volatile uint8_t ultimoBotaoPressionado = 0;
+volatile bool botaoPressionado = false;
 PIO pio = pio0;
 uint sm;
-double led_buffer[25][3] = {0};                     // Buffer para armazenar o estado dos LEDs
+double led_buffer[25][3] = {0}; // Buffer para armazenar o estado dos LEDs
 
-double apagar_leds[25][3] =                         // Apagar LEDs da matriz
- {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-  {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-  {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-  {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-  {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+double apagar_leds[25][3] = // Apagar LEDs da matriz
+    {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
 
-  
 double COORDENADA_NIVEL_0[PIXELS][3] = {
-    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}
-};
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}};
 
 double COORDENADA_NIVEL_1[PIXELS][3] = {
-    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}
-};
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}};
 
 double COORDENADA_NIVEL_2[PIXELS][3] = {
-    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}
-};
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}};
 
 double COORDENADA_NIVEL_3[PIXELS][3] = {
-    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
-    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}
-};
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}};
 
 struct http_state
 {
@@ -163,7 +142,7 @@ const char HTML_BODY[] =
 // Função de configuração inicial
 void setup(void);
 
-void acionar_bomba();
+void gpio_irq_handler(uint gpio, uint32_t events);
 
 // Função de callback para enviar dados HTTP
 static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
@@ -193,51 +172,51 @@ void vPollingTask(void *pvParameters)
 {
     while (true)
     {
-        cyw43_arch_poll();      // Polling do Wi-Fi para manter a conexão ativa
-        vTaskDelay(1000);       // Aguarda 1 segundo antes de repetir
+        cyw43_arch_poll(); // Polling do Wi-Fi para manter a conexão ativa
+        vTaskDelay(1000);  // Aguarda 1 segundo antes de repetir
     }
 }
 
 // Task para exibir informações no display LCD
 void vDisplayTask(void *pvParameters)
 {
-    bool cor = true;                                                        // Variável para alternar a cor do display
-    char *ip_str = (char *)pvParameters;                                    // Recebe o IP como parâmetro
+    bool cor = true;                     // Variável para alternar a cor do display
+    char *ip_str = (char *)pvParameters; // Recebe o IP como parâmetro
     char volume_str[8];
     snprintf(volume_str, sizeof(volume_str), "%d", *(int *)(&volume_agua));
 
     while (true)
     {
-        if (estado_display)     // Verifica se a flag está ativa, exibe informações sobre a rede
+        if (estado_display) // Verifica se a flag está ativa, exibe informações sobre a rede
         {
             ssd1306_fill(&ssd, !cor);
-            ssd1306_line(&ssd, 0, 0, WIDTH - 1, 0, cor);                    // Linha no topo
-            ssd1306_line(&ssd, 0, HEIGHT - 1, WIDTH - 1, HEIGHT - 1, cor);  // Linha na base
-            ssd1306_line(&ssd, 0, 0, 0, HEIGHT - 1, cor);                   // Linha na esquerda
-            ssd1306_line(&ssd, WIDTH - 1, 0, WIDTH - 1, HEIGHT - 1, cor);   // Linha na direita
-            ssd1306_line(&ssd, 0, 12, WIDTH - 1, 12, cor);                  // Linha horizontal
-            ssd1306_line(&ssd, 0, 29, WIDTH - 1, 29, cor);                  // Linha horizontal
-            ssd1306_line(&ssd, 0, 43, WIDTH - 1, 43, cor);                  // Linha horizontal
+            ssd1306_line(&ssd, 0, 0, WIDTH - 1, 0, cor);                   // Linha no topo
+            ssd1306_line(&ssd, 0, HEIGHT - 1, WIDTH - 1, HEIGHT - 1, cor); // Linha na base
+            ssd1306_line(&ssd, 0, 0, 0, HEIGHT - 1, cor);                  // Linha na esquerda
+            ssd1306_line(&ssd, WIDTH - 1, 0, WIDTH - 1, HEIGHT - 1, cor);  // Linha na direita
+            ssd1306_line(&ssd, 0, 12, WIDTH - 1, 12, cor);                 // Linha horizontal
+            ssd1306_line(&ssd, 0, 29, WIDTH - 1, 29, cor);                 // Linha horizontal
+            ssd1306_line(&ssd, 0, 43, WIDTH - 1, 43, cor);                 // Linha horizontal
             ssd1306_draw_string(&ssd, "WiFi:", 5, 3);
             ssd1306_draw_string(&ssd, WIFI_SSID, 5, 19);
             ssd1306_draw_string(&ssd, "Endereco IP:", 5, 33);
             ssd1306_draw_string(&ssd, ip_str, 5, 52);
             ssd1306_send_data(&ssd);
 
-            vTaskDelay(1000);                                               // Aguarda 1s para atualizar o display
+            vTaskDelay(1000); // Aguarda 1s para atualizar o display
         }
-        else                    // Se a flag estiver desativada, exibe o estado da bomba e o volume de água
+        else // Se a flag estiver desativada, exibe o estado da bomba e o volume de água
         {
             ssd1306_fill(&ssd, !cor);
-            ssd1306_line(&ssd, 0, 0, WIDTH - 1, 0, cor);                    // Linha no topo
-            ssd1306_line(&ssd, 0, HEIGHT - 1, WIDTH - 1, HEIGHT - 1, cor);  // Linha na base
-            ssd1306_line(&ssd, 0, 0, 0, HEIGHT - 1, cor);                   // Linha na esquerda
-            ssd1306_line(&ssd, WIDTH - 1, 0, WIDTH - 1, HEIGHT - 1, cor);   // Linha na direita
-            ssd1306_line(&ssd, 0, 12, WIDTH - 1, 12, cor);                  // Linha horizontal
-            ssd1306_line(&ssd, 0, 29, WIDTH - 1, 29, cor);                  // Linha horizontal
-            ssd1306_line(&ssd, 0, 43, WIDTH - 1, 43, cor);                  // Linha horizontal
+            ssd1306_line(&ssd, 0, 0, WIDTH - 1, 0, cor);                   // Linha no topo
+            ssd1306_line(&ssd, 0, HEIGHT - 1, WIDTH - 1, HEIGHT - 1, cor); // Linha na base
+            ssd1306_line(&ssd, 0, 0, 0, HEIGHT - 1, cor);                  // Linha na esquerda
+            ssd1306_line(&ssd, WIDTH - 1, 0, WIDTH - 1, HEIGHT - 1, cor);  // Linha na direita
+            ssd1306_line(&ssd, 0, 12, WIDTH - 1, 12, cor);                 // Linha horizontal
+            ssd1306_line(&ssd, 0, 29, WIDTH - 1, 29, cor);                 // Linha horizontal
+            ssd1306_line(&ssd, 0, 43, WIDTH - 1, 43, cor);                 // Linha horizontal
             ssd1306_draw_string(&ssd, "Est. da Bomba:", 5, 3);
-            if (estado_bomba)   // Se a bomba estiver ligada, exibe "Ligada", caso contrário, exibe "Desligada"
+            if (estado_bomba) // Se a bomba estiver ligada, exibe "Ligada", caso contrário, exibe "Desligada"
             {
                 ssd1306_draw_string(&ssd, "Ligada", 5, 19);
             }
@@ -245,36 +224,46 @@ void vDisplayTask(void *pvParameters)
             {
                 ssd1306_draw_string(&ssd, "Desligada", 5, 19);
             }
-            ssd1306_draw_string(&ssd, "Vol. de Agua:", 5, 33); 
-            ssd1306_draw_string(&ssd, volume_str, 5, 52);                   // Exibe o volume de água em porcentagem
+            ssd1306_draw_string(&ssd, "Vol. de Agua:", 5, 33);
+            ssd1306_draw_string(&ssd, volume_str, 5, 52); // Exibe o volume de água em porcentagem
             ssd1306_draw_string(&ssd, "/100", 22, 52);
             ssd1306_send_data(&ssd);
 
-            vTaskDelay(200);                                                // Aguarda 200 ms para atualizar o display
+            vTaskDelay(200); // Aguarda 200 ms para atualizar o display
         }
     }
 }
 
-void vLeituraNivelTask(void *pvParameters) {
+void vLeituraNivelTask(void *pvParameters)
+{
     adc_select_input(2); // Canal 2 = GPIO28
-    while (1) {
+    while (1)
+    {
         uint16_t nivel = adc_read();
         xQueueSend(xFilaNivel, &nivel, portMAX_DELAY); // Envia o valor para a fila
-        vTaskDelay(pdMS_TO_TICKS(500)); // Leitura a cada 500 ms
+        vTaskDelay(pdMS_TO_TICKS(500));                // Leitura a cada 500 ms
     }
 }
 
-void vLedsRGBTask(void *pvParameters) {
+void vLedsRGBTask(void *pvParameters)
+{
     uint16_t nivel;
-    while (1) {
-        if (xQueueReceive(xFilaNivel, &nivel, portMAX_DELAY)) {
-            if (nivel <= 1365) { // Nível Baixo - Verde
+    while (1)
+    {
+        if (xQueueReceive(xFilaNivel, &nivel, portMAX_DELAY))
+        {
+            if (nivel <= 1365)
+            { // Nível Baixo - Verde
                 gpio_put(LED_PIN_GREEN, 1);
                 gpio_put(LED_PIN_RED, 0);
-            } else if (nivel <= 2730) { // Nível Médio - Amarelo
+            }
+            else if (nivel <= 2730)
+            { // Nível Médio - Amarelo
                 gpio_put(LED_PIN_GREEN, 1);
                 gpio_put(LED_PIN_RED, 1);
-            } else { // Nível Alto - Vermelho
+            }
+            else
+            { // Nível Alto - Vermelho
                 gpio_put(LED_PIN_GREEN, 0);
                 gpio_put(LED_PIN_RED, 1);
             }
@@ -294,35 +283,35 @@ void vBuzzerTask()
 
     while (true)
     {
-        adc_select_input(2);  // Canal do sensor de nível de água
-        uint16_t nivel_da_agua = adc_read();  // Valor de 0 a 4095
+        adc_select_input(2);                 // Canal do sensor de nível de água
+        uint16_t nivel_da_agua = adc_read(); // Valor de 0 a 4095
 
         // Converta para percentual
         float percentual = (nivel_da_agua / 4095.0f) * 100.0f;
 
         if (percentual < 30.0f)
         {
-            pwm_set_gpio_level(BUZZER_PIN, 0);  // Buzzer desligado
-            vTaskDelay(pdMS_TO_TICKS(500));     // Espera meio segundo
+            pwm_set_gpio_level(BUZZER_PIN, 0); // Buzzer desligado
+            vTaskDelay(pdMS_TO_TICKS(500));    // Espera meio segundo
         }
         else if (percentual < 60.0f)
         {
-            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga o buzzer
-            vTaskDelay(pdMS_TO_TICKS(500));            // Liga por 500ms
-            pwm_set_gpio_level(BUZZER_PIN, 0);         // Desliga
-            vTaskDelay(pdMS_TO_TICKS(500));            // Espera
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2); // Liga o buzzer
+            vTaskDelay(pdMS_TO_TICKS(500));           // Liga por 500ms
+            pwm_set_gpio_level(BUZZER_PIN, 0);        // Desliga
+            vTaskDelay(pdMS_TO_TICKS(500));           // Espera
         }
         else if (percentual < 90.0f)
         {
-            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga
-            vTaskDelay(pdMS_TO_TICKS(100));            // Liga por 100ms
-            pwm_set_gpio_level(BUZZER_PIN, 0);         // Desliga
-            vTaskDelay(pdMS_TO_TICKS(100));            // Espera
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2); // Liga
+            vTaskDelay(pdMS_TO_TICKS(100));           // Liga por 100ms
+            pwm_set_gpio_level(BUZZER_PIN, 0);        // Desliga
+            vTaskDelay(pdMS_TO_TICKS(100));           // Espera
         }
         else
         {
-            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga o buzzer contínuo
-            vTaskDelay(pdMS_TO_TICKS(100));            // Mantém
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2); // Liga o buzzer contínuo
+            vTaskDelay(pdMS_TO_TICKS(100));           // Mantém
         }
     }
 }
@@ -331,47 +320,58 @@ void vBotaoBombaTask(void *pvParameters)
 {
     while (true)
     {
-        acionar_bomba();
-        vTaskDelay(pdMS_TO_TICKS(500));
+        if (ultimoBotaoPressionado == BOTAO_JOY)
+        {
+            estado_bomba = !estado_bomba;
+            vTaskDelay(pdMS_TO_TICKS(500));
+            ultimoBotaoPressionado = 0;
+        }
     }
 }
 
-
-void vButton_task() {
-    while (true) {
-        if (!gpio_get(BOTAO_A)) {
+void vButton_task()
+{
+    while (true)
+    {
+        if (ultimoBotaoPressionado == BOTAO_A)
+        {
             estado_display = !estado_display;
             vTaskDelay(pdMS_TO_TICKS(500));
         }
-        if (!gpio_get(BOTAO_B)) {
+        else if (ultimoBotaoPressionado == BOTAO_B)
+        {
             estado_bomba = !estado_bomba;
-             vTaskDelay(pdMS_TO_TICKS(500));
+            vTaskDelay(pdMS_TO_TICKS(500));
         }
         vTaskDelay(pdMS_TO_TICKS(50));
+        ultimoBotaoPressionado = 0;
     }
 }
 
-void vMatriz_led_task() {
-    while (true) {
-        switch (volume_agua) {
+void vMatriz_led_task()
+{
+    while (true)
+    {
+        switch (volume_agua)
+        {
         case 0:
-            pio_matrix(COORDENADA_NIVEL_0, 0, pio, sm);
-             vTaskDelay(pdMS_TO_TICKS(500));
+            desenho_pio(COORDENADA_NIVEL_0, 0, pio, sm);
+            vTaskDelay(pdMS_TO_TICKS(500));
             break;
 
         case 1:
-            pio_matrix(COORDENADA_NIVEL_1, 0, pio, sm);
-             vTaskDelay(pdMS_TO_TICKS(500));
+            desenho_pio(COORDENADA_NIVEL_1, 0, pio, sm);
+            vTaskDelay(pdMS_TO_TICKS(500));
             break;
 
         case 2:
-            pio_matrix(COORDENADA_NIVEL_2, 0, pio, sm);
-             vTaskDelay(pdMS_TO_TICKS(500));
+            desenho_pio(COORDENADA_NIVEL_2, 0, pio, sm);
+            vTaskDelay(pdMS_TO_TICKS(500));
             break;
 
         case 3:
-            pio_matrix(COORDENADA_NIVEL_3, 0, pio, sm);
-             vTaskDelay(pdMS_TO_TICKS(500));
+            desenho_pio(COORDENADA_NIVEL_3, 0, pio, sm);
+            vTaskDelay(pdMS_TO_TICKS(500));
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -381,12 +381,12 @@ void vMatriz_led_task() {
 //------------------------------------------------MAIN------------------------------------------------
 int main()
 {
-    stdio_init_all();                                   // Inicializa a saída padrão (UART)
-    sleep_ms(2000);                                     // Aguarda 2 segundos para estabilização
+    stdio_init_all(); // Inicializa a saída padrão (UART)
+    sleep_ms(2000);   // Aguarda 2 segundos para estabilização
 
-    setup();                                            // Configurações iniciais
+    setup(); // Configurações iniciais
 
-    if (cyw43_arch_init())                              // Inicializa o Wi-fi
+    if (cyw43_arch_init()) // Inicializa o Wi-fi
     {
         ssd1306_fill(&ssd, false);
         ssd1306_draw_string(&ssd, "WiFi => FALHA", 0, 0);
@@ -394,8 +394,9 @@ int main()
         return 1;
     }
 
-    cyw43_arch_enable_sta_mode();                       // Habilita o modo Station do Wi-Fi
+    cyw43_arch_enable_sta_mode(); // Habilita o modo Station do Wi-Fi
     if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 10000))
+
     {
         ssd1306_fill(&ssd, false);
         ssd1306_draw_string(&ssd, "WiFi => ERRO", 0, 0);
@@ -411,40 +412,42 @@ int main()
     ssd1306_draw_string(&ssd, "WiFi => OK", 0, 0);
     ssd1306_draw_string(&ssd, ip_str, 0, 10);
     ssd1306_send_data(&ssd);
-    
+
     // Filas
     xFilaNivel = xQueueCreate(5, sizeof(uint16_t));
 
-    start_http_server();                                // Inicia o servidor HTTP
+    start_http_server(); // Inicia o servidor HTTP
 
-    char *ip_str_param = malloc(strlen(ip_str) + 1);    // Aloca memória para o IP string
-    if (!ip_str_param) {
+    char *ip_str_param = malloc(strlen(ip_str) + 1); // Aloca memória para o IP string
+    if (!ip_str_param)
+    {
         printf("Erro ao alocar memória para o IP string\n");
         return 1; // Retorna erro se não conseguir alocar memória
     }
-    strcpy(ip_str_param, ip_str);   // Copia o IP string para a memória alocada
+    strcpy(ip_str_param, ip_str); // Copia o IP string para a memória alocada
 
-    //Tasks
-    xTaskCreate(vPollingTask, "Polling Task", 256, NULL, 1, NULL); 
+    // Tasks
+    xTaskCreate(vPollingTask, "Polling Task", 256, NULL, 1, NULL);
     xTaskCreate(vDisplayTask, "Display Task", 256, ip_str_param, 1, NULL); // Cria a task de display
     xTaskCreate(vLeituraNivelTask, "LeituraNivel", 256, NULL, 2, NULL);
     xTaskCreate(vLedsRGBTask, "ControleRGB", 256, NULL, 2, NULL);
-    xTaskCreate(vBuzzerTask, "Task para o buzzer", 256, NULL, 1, NULL); 
-    xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL); 
+    xTaskCreate(vButton_task, "ControleRGB", 256, NULL, 2, NULL);
+    xTaskCreate(vMatriz_led_task, "ControleRGB", 256, NULL, 2, NULL);
+    xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL);
 
-
-    vTaskStartScheduler();          // Inicia o escalonador do FreeRTOS
-    panic_unsupported();            // Se o escalonador falhar, entra em pânico
+    vTaskStartScheduler(); // Inicia o escalonador do FreeRTOS
+    panic_unsupported();   // Se o escalonador falhar, entra em pânico
 }
 
 //----------------------------------------------Funções------------------------------------------------
 // Função de configuração inicial
-void setup(void){
+void setup(void)
+{
 
-    gpio_init(BOMBA);                // Inicializa o GPIO da bomba
-    gpio_set_dir(BOMBA, GPIO_OUT);   // Define o GPIO como saída
-    gpio_put(BOMBA, 0);              // Desliga a bomba inicialmente
-    
+    gpio_init(BOMBA);              // Inicializa o GPIO da bomba
+    gpio_set_dir(BOMBA, GPIO_OUT); // Define o GPIO como saída
+    gpio_put(BOMBA, 0);            // Desliga a bomba inicialmente
+
     gpio_init(LED_PIN_GREEN);
     gpio_set_dir(LED_PIN_GREEN, GPIO_OUT);
 
@@ -454,7 +457,7 @@ void setup(void){
     gpio_init(LED_PIN_RED);
     gpio_set_dir(LED_PIN_RED, GPIO_OUT);
 
-    adc_gpio_init(SENSOR_NIVEL); 
+    adc_gpio_init(SENSOR_NIVEL);
 
     gpio_init(BOTAO_A);
     gpio_set_dir(BOTAO_A, GPIO_IN);
@@ -467,7 +470,11 @@ void setup(void){
     gpio_init(BOTAO_JOY);
     gpio_set_dir(BOTAO_JOY, GPIO_IN);
     gpio_pull_up(BOTAO_JOY);
-    
+
+    gpio_set_irq_enabled_with_callback(BOTAO_JOY, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+    gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+    gpio_set_irq_enabled_with_callback(BOTAO_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+
     pwm_setup(BUZZER_PIN);
 
     adc_init();
@@ -484,20 +491,33 @@ void setup(void){
     ssd1306_config(&ssd);
     ssd1306_fill(&ssd, false);
     ssd1306_draw_string(&ssd, "Iniciando Wi-Fi", 0, 0);
-    ssd1306_draw_string(&ssd, "Aguarde...", 0, 30);    
+    ssd1306_draw_string(&ssd, "Aguarde...", 0, 30);
     ssd1306_send_data(&ssd);
 }
 
-// Faz a leitura da GPIO 22 para acionar a bomba
-void acionar_bomba()
+// Interrupcao para os tres botoes com debounce
+void gpio_irq_handler(uint gpio, uint32_t events)
 {
-    if (!gpio_get(BOTAO_JOY))  
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+
+    if (now - lastIrqTime < DEBOUNCE_MS)
+        return; // Debounce
+    lastIrqTime = now;
+
+    if (gpio == BOTAO_A)
     {
-        estado_bomba = true;    
+        ultimoBotaoPressionado = BOTAO_A;
+        botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
     }
-    else
+    else if (gpio == BOTAO_B)
     {
-        estado_bomba = false;
+        ultimoBotaoPressionado = BOTAO_B;
+        botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
+    }
+    else if (gpio == BOTAO_JOY)
+    {
+        ultimoBotaoPressionado = BOTAO_JOY;
+        botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
     }
 }
 
@@ -632,31 +652,32 @@ static void start_http_server(void)
 }
 
 // Configura PWM para um GPIO específico
-void pwm_setup(uint8_t GPIO) {
-  gpio_set_function(GPIO, GPIO_FUNC_PWM); // Define função PWM para o pino
-  uint slice_num = pwm_gpio_to_slice_num(GPIO); // Obtém o número do slice
-  pwm_config config = pwm_get_default_config(); // Configuração padrão
-  pwm_config_set_wrap(&config, 4095); // Wrap em 4095 para 12 bits
-  pwm_init(slice_num, &config, true); // Inicializa PWM
+void pwm_setup(uint8_t GPIO)
+{
+    gpio_set_function(GPIO, GPIO_FUNC_PWM);       // Define função PWM para o pino
+    uint slice_num = pwm_gpio_to_slice_num(GPIO); // Obtém o número do slice
+    pwm_config config = pwm_get_default_config(); // Configuração padrão
+    pwm_config_set_wrap(&config, 4095);           // Wrap em 4095 para 12 bits
+    pwm_init(slice_num, &config, true);           // Inicializa PWM
 }
 
 // Função para converter RGB em um valor de 32 bits
-uint matrix_rgb(float r, float g, float b) 
+uint matrix_rgb(float r, float g, float b)
 {
-  unsigned char R, G, B;
-  R = r * 255;
-  G = g * 255;
-  B = b * 255;
-  return (G << 24) | (R << 16) | (B << 8);
+    unsigned char R, G, B;
+    R = r * 255;
+    G = g * 255;
+    B = b * 255;
+    return (G << 24) | (R << 16) | (B << 8);
 }
 
 // Função para desenhar na matriz
 void desenho_pio(double desenho[25][3], uint32_t valor_led, PIO pio, uint sm)
 {
 
-  for (int16_t i = 0; i < PIXELS; i++)
-  {
-    valor_led = matrix_rgb(desenho[i][0], desenho[i][1], desenho[i][2]);
-    pio_sm_put_blocking(pio, sm, valor_led);
-  };
+    for (int16_t i = 0; i < PIXELS; i++)
+    {
+        valor_led = matrix_rgb(desenho[i][0], desenho[i][1], desenho[i][2]);
+        pio_sm_put_blocking(pio, sm, valor_led);
+    };
 }
