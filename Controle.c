@@ -87,8 +87,6 @@ struct http_state
     size_t sent;
 };
 
-QueueHandle_t xFilaNivel; // Fila para leitura de nível do reservatório
-
 //-------------------------------------------HTML-------------------------------------------
 const char HTML_BODY[] =
     "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Sistema de Monitoramento de Água</title>"
@@ -188,10 +186,10 @@ void vDisplayTask(void *pvParameters)
     bool cor = true;                     // Variável para alternar a cor do display
     char *ip_str = (char *)pvParameters; // Recebe o IP como parâmetro
     char volume_str[8];
-    snprintf(volume_str, sizeof(volume_str), "%d", *(int *)(&volume_agua));
-
     while (true)
     {
+        snprintf(volume_str, sizeof(volume_str), "%d", *(int *)(&volume_agua));
+
         if (estado_display) // Verifica se a flag está ativa, exibe informações sobre a rede
         {
             ssd1306_fill(&ssd, !cor);
@@ -234,6 +232,7 @@ void vDisplayTask(void *pvParameters)
             ssd1306_draw_string(&ssd, "/100", 22, 52);
             ssd1306_send_data(&ssd);
 
+            printf(volume_str, "\n");
             vTaskDelay(200); // Aguarda 200 ms para atualizar o display
         }
     }
@@ -243,7 +242,7 @@ void vLeituraNivelTask(void *pvParameters)
 {
     adc_select_input(2); // Canal 2 = GPIO28
     while (1) {
-        volume_agua = adc_read() / 4095.0 * 100; // Lê o valor do ADC e converte para porcentagem (0-100%)
+        volume_agua = adc_read() / 4095.0 * 200; // Lê o valor do ADC e converte para porcentagem (0-100%)
         vTaskDelay(pdMS_TO_TICKS(100)); // Leitura a cada 100 ms
     }
 }
@@ -276,37 +275,31 @@ void vBuzzerTask()
 
     while (true)
     {
-        adc_select_input(2);                 // Canal do sensor de nível de água
-        uint16_t nivel_da_agua = adc_read(); // Valor de 0 a 4095
-
-        // Converta para percentual
-        float percentual = (nivel_da_agua / 4095.0f) * 100.0f;
-
-        if (percentual < 30.0f)
+        if (volume_agua >= 0 && volume_agua <= 30)
         {
             pwm_set_gpio_level(BUZZER_PIN, 0); // Buzzer desligado
             vTaskDelay(pdMS_TO_TICKS(500));    // Espera meio segundo
         }
-        else if (percentual < 60.0f)
+        else if (volume_agua > 30 && volume_agua <= 60)
         {
             pwm_set_gpio_level(BUZZER_PIN, wrap / 2); // Liga o buzzer
             vTaskDelay(pdMS_TO_TICKS(500));           // Liga por 500ms
             pwm_set_gpio_level(BUZZER_PIN, 0);        // Desliga
             vTaskDelay(pdMS_TO_TICKS(500));           // Espera
         }
-        else if (percentual < 90.0f)
+        else if (volume_agua > 60 && volume_agua <= 90)
         {
             pwm_set_gpio_level(BUZZER_PIN, wrap / 2); // Liga
             vTaskDelay(pdMS_TO_TICKS(100));           // Liga por 100ms
             pwm_set_gpio_level(BUZZER_PIN, 0);        // Desliga
             vTaskDelay(pdMS_TO_TICKS(100));           // Espera
         }
-        else
+        else if (volume_agua > 90)
         {
             pwm_set_gpio_level(BUZZER_PIN, wrap / 2); // Liga o buzzer contínuo
             vTaskDelay(pdMS_TO_TICKS(100));           // Mantém
         }
-        vTaskDelay(pdMS_TO_TICKS(100)); // Aguarda 100 ms antes da próxima leitura
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -328,6 +321,8 @@ void vAcionamentoBombaTask(void *pvParameters)
 
 void vMatriz_led_task()
 {
+    desenho_pio(apagar_leds, 0, pio, sm);
+    
     while (true)
     {
         if (volume_agua == 0)
@@ -426,10 +421,6 @@ void setup(void)
     gpio_set_dir(BOMBA, GPIO_OUT); // Define o GPIO como saída
     gpio_put(BOMBA, 1);
 
-    gpio_init(BOMBA);                // Inicializa o GPIO da bomba
-    gpio_set_dir(BOMBA, GPIO_OUT);   // Define o GPIO como saída
-    gpio_put(BOMBA, 0);              // Desliga a bomba inicialmente
-    
     gpio_init(LED_MATRIX);          // Inicializa o GPIO da matriz de LEDs
     gpio_set_dir(LED_MATRIX, GPIO_OUT); // Define o GPIO como saída
   
@@ -494,18 +485,15 @@ void gpio_irq_handler(uint gpio, uint32_t events)
 
     if (gpio == BOTAO_A)
     {
-        ultimoBotaoPressionado = BOTAO_A;
-        botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
+        estado_display = !estado_display;
     }
     else if (gpio == BOTAO_B)
     {
         estado_bomba = !estado_bomba;
-        botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
     }
     else if (gpio == BOTAO_JOY)
     {
         estado_bomba = !estado_bomba;
-        botaoPressionado = true; // Adiciona isso se quiser usar o controle de flag
     }
 }
 
