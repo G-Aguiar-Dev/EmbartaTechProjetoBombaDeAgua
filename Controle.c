@@ -50,7 +50,7 @@
 
 ssd1306_t ssd;                                   // Variável para o display LCD
 static volatile float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
-static volatile uint8_t volume_agua = 0;        // Variável para armazenar o volume de água (0-100%)
+static volatile uint8_t volume_agua = 50;        // Variável para armazenar o volume de água (0-100%)
 volatile bool estado_display = false;            // Estado do display OLED
 volatile bool estado_bomba = false;              // Estado do LED
 static uint32_t lastIrqTime = 0;                 // Registra o tempo da ultima interrupcao
@@ -337,14 +337,15 @@ void vButton_task()
         {
             estado_display = !estado_display;
             vTaskDelay(pdMS_TO_TICKS(500));
+            ultimoBotaoPressionado = 0;
         }
         else if (ultimoBotaoPressionado == BOTAO_B)
         {
             estado_bomba = !estado_bomba;
             vTaskDelay(pdMS_TO_TICKS(500));
+            ultimoBotaoPressionado = 0;
         }
-        vTaskDelay(pdMS_TO_TICKS(50));
-        ultimoBotaoPressionado = 0;
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -431,8 +432,8 @@ int main()
     xTaskCreate(vDisplayTask, "Display Task", 256, ip_str_param, 1, NULL); // Cria a task de display
     xTaskCreate(vLeituraNivelTask, "LeituraNivel", 256, NULL, 2, NULL);
     xTaskCreate(vLedsRGBTask, "ControleRGB", 256, NULL, 2, NULL);
-    xTaskCreate(vButton_task, "ControleRGB", 256, NULL, 2, NULL);
-    xTaskCreate(vMatriz_led_task, "ControleRGB", 256, NULL, 2, NULL);
+    xTaskCreate(vButton_task, "Botoes", 256, NULL, 2, NULL);
+    xTaskCreate(vMatriz_led_task, "Matriz", 256, NULL, 2, NULL);
     xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL);
 
     vTaskStartScheduler(); // Inicia o escalonador do FreeRTOS
