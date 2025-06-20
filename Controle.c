@@ -42,23 +42,59 @@
 #define I2C_SCL_DISP 15
 #define endereco 0x3C
 #define BUZZER_PIN 21
+#define PIXELS 25
+#define SENSOR_NIVEL 28   // Pino ADC conectado ao potenciômetro da boia
 
 //-------------------------------------------Variáveis Globais-------------------------------------------
 
-ssd1306_t ssd;                          // Variável para o display LCD 
-static float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
-static uint8_t volume_agua = 0;         // Variável para armazenar o volume de água (0-100%)
-volatile bool estado_display = false;   // Estado do display OLED
-volatile bool estado_bomba = false;     // Estado do LED
+ssd1306_t ssd;                                      // Variável para o display LCD 
+static volatile float r = 0.0, b = 0.0, g = 0.0;    // Variáveis para controlar a cor dos LEDs
+static volatile uint8_t volume_agua = 0;            // Variável para armazenar o volume de água (0-100%)
+volatile bool estado_display = false;               // Estado do display OLED
+volatile bool estado_bomba = false;                 // Estado do LED
+PIO pio = pio0;
+uint sm;
+double led_buffer[25][3] = {0};                     // Buffer para armazenar o estado dos LEDs
 
-double led_buffer[25][3] = {0};         // Buffer para armazenar o estado dos LEDs
-
-double apagar_leds[25][3] =             // Apagar LEDs da matriz
+double apagar_leds[25][3] =                         // Apagar LEDs da matriz
  {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
   {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
   {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
   {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
   {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+
+  
+double COORDENADA_NIVEL_0[PIXELS][3] = {
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}
+};
+
+double COORDENADA_NIVEL_1[PIXELS][3] = {
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}
+};
+
+double COORDENADA_NIVEL_2[PIXELS][3] = {
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}
+};
+
+double COORDENADA_NIVEL_3[PIXELS][3] = {
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0},
+    {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}
+};
 
 struct http_state
 {
@@ -68,7 +104,6 @@ struct http_state
 };
 
 QueueHandle_t xFilaNivel; // Fila para leitura de nível do reservatório
-#define SENSOR_NIVEL 28    // Pino ADC conectado ao potenciômetro da boia
 
 //-------------------------------------------HTML-------------------------------------------
 const char HTML_BODY[] =
@@ -298,6 +333,48 @@ void vBotaoBombaTask(void *pvParameters)
     {
         acionar_bomba();
         vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
+
+void vButton_task() {
+    while (true) {
+        if (!gpio_get(BOTAO_A)) {
+            estado_display = !estado_display;
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        if (!gpio_get(BOTAO_B)) {
+            estado_bomba = !estado_bomba;
+             vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+void vMatriz_led_task() {
+    while (true) {
+        switch (volume_agua) {
+        case 0:
+            pio_matrix(COORDENADA_NIVEL_0, 0, pio, sm);
+             vTaskDelay(pdMS_TO_TICKS(500));
+            break;
+
+        case 1:
+            pio_matrix(COORDENADA_NIVEL_1, 0, pio, sm);
+             vTaskDelay(pdMS_TO_TICKS(500));
+            break;
+
+        case 2:
+            pio_matrix(COORDENADA_NIVEL_2, 0, pio, sm);
+             vTaskDelay(pdMS_TO_TICKS(500));
+            break;
+
+        case 3:
+            pio_matrix(COORDENADA_NIVEL_3, 0, pio, sm);
+             vTaskDelay(pdMS_TO_TICKS(500));
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -574,11 +651,10 @@ uint matrix_rgb(float r, float g, float b)
 }
 
 // Função para desenhar na matriz
-#define NUM_PIXELS 25
 void desenho_pio(double desenho[25][3], uint32_t valor_led, PIO pio, uint sm)
 {
 
-  for (int16_t i = 0; i < NUM_PIXELS; i++)
+  for (int16_t i = 0; i < PIXELS; i++)
   {
     valor_led = matrix_rgb(desenho[i][0], desenho[i][1], desenho[i][2]);
     pio_sm_put_blocking(pio, sm, valor_led);
