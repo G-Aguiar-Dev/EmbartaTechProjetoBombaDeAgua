@@ -49,7 +49,7 @@ include_directories(
 # Add executable. Default name is the project name, version 0.1
 add_executable(${PROJECT_NAME} Controle.c lib/ssd1306.c)
 
-pico_set_program_name(${PROJECT_NAME} "mqtt_web")
+pico_set_program_name(${PROJECT_NAME} "controladora_bomba")
 pico_set_program_version(${PROJECT_NAME} "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
