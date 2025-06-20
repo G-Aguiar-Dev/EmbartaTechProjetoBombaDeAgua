@@ -25,8 +25,8 @@ set(PICO_BOARD pico_w CACHE STRING "Board type")
 include(pico_sdk_import.cmake)
 
 # Include FreeRTOS Kernel
-set(FREERTOS_KERNEL_PATH "D:/FreeRTOS-Kernel")
-include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
+set(FREERTOS_KERNEL_PATH "C:/Users/malub/FreeRTOS-Kernel")
+include(C:/Users/malub/FreeRTOS-Kernel/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
 
 # Define Project Name
 project(controladora_bomba C CXX ASM)

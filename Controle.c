@@ -18,6 +18,7 @@
 #include "hardware/pio.h"           // Biblioteca de PIO
 #include "hardware/clocks.h"        // Biblioteca de clocks
 #include "hardware/pwm.h"           // Biblioteca de hardware para manipulação do PWM
+#include "queue.h"                 // Biblioteca de FreeRTOS para manipulação de filas
 
 #include "matriz_LED.pio.h"         // Biblioteca gerada pelo PIO para manipulação de uma matriz de LEDs
 #include "ssd1306.h"                // Biblioteca para manipulação de displays OLED SSD1306
@@ -28,6 +29,9 @@
 #define WIFI_PASS "SUA SENHA"
 
 #define BOMBA 99 // Temporário
+#define LED_PIN_GREEN 11
+#define LED_PIN_BLUE 12
+#define LED_PIN_RED 13
 #define BOTAO_A 5
 #define BOTAO_B 6
 #define BOTAO_JOY 22
@@ -37,6 +41,7 @@
 #define I2C_SDA_DISP 14
 #define I2C_SCL_DISP 15
 #define endereco 0x3C
+#define BUZZER_PIN 21
 
 //-------------------------------------------Variáveis Globais-------------------------------------------
 
@@ -61,6 +66,9 @@ struct http_state
     size_t len;
     size_t sent;
 };
+
+QueueHandle_t xFilaNivel; // Fila para leitura de nível do reservatório
+#define SENSOR_NIVEL 28    // Pino ADC conectado ao potenciômetro da boia
 
 //-------------------------------------------HTML-------------------------------------------
 const char HTML_BODY[] =
@@ -119,6 +127,8 @@ const char HTML_BODY[] =
 
 // Função de configuração inicial
 void setup(void);
+
+void acionar_bomba();
 
 // Função de callback para enviar dados HTTP
 static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
@@ -210,6 +220,87 @@ void vDisplayTask(void *pvParameters)
     }
 }
 
+void vLeituraNivelTask(void *pvParameters) {
+    adc_select_input(2); // Canal 2 = GPIO28
+    while (1) {
+        uint16_t nivel = adc_read();
+        xQueueSend(xFilaNivel, &nivel, portMAX_DELAY); // Envia o valor para a fila
+        vTaskDelay(pdMS_TO_TICKS(500)); // Leitura a cada 500 ms
+    }
+}
+
+void vLedsRGBTask(void *pvParameters) {
+    uint16_t nivel;
+    while (1) {
+        if (xQueueReceive(xFilaNivel, &nivel, portMAX_DELAY)) {
+            if (nivel <= 1365) { // Nível Baixo - Verde
+                gpio_put(LED_PIN_GREEN, 1);
+                gpio_put(LED_PIN_RED, 0);
+            } else if (nivel <= 2730) { // Nível Médio - Amarelo
+                gpio_put(LED_PIN_GREEN, 1);
+                gpio_put(LED_PIN_RED, 1);
+            } else { // Nível Alto - Vermelho
+                gpio_put(LED_PIN_GREEN, 0);
+                gpio_put(LED_PIN_RED, 1);
+            }
+        }
+    }
+}
+
+/* Tarefa para tocar o buzzer com pwm */
+void vBuzzerTask()
+{
+    uint slice = pwm_gpio_to_slice_num(BUZZER_PIN);
+    uint chan = pwm_gpio_to_channel(BUZZER_PIN);
+    uint wrap = 125000000 / 3500; // Frequência base: 3.5kHz (ajuste conforme o buzzer)
+
+    pwm_set_wrap(slice, wrap);
+    pwm_set_enabled(slice, true);
+
+    while (true)
+    {
+        adc_select_input(2);  // Canal do sensor de nível de água
+        uint16_t nivel_da_agua = adc_read();  // Valor de 0 a 4095
+
+        // Converta para percentual
+        float percentual = (nivel_da_agua / 4095.0f) * 100.0f;
+
+        if (percentual < 30.0f)
+        {
+            pwm_set_gpio_level(BUZZER_PIN, 0);  // Buzzer desligado
+            vTaskDelay(pdMS_TO_TICKS(500));     // Espera meio segundo
+        }
+        else if (percentual < 60.0f)
+        {
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga o buzzer
+            vTaskDelay(pdMS_TO_TICKS(500));            // Liga por 500ms
+            pwm_set_gpio_level(BUZZER_PIN, 0);         // Desliga
+            vTaskDelay(pdMS_TO_TICKS(500));            // Espera
+        }
+        else if (percentual < 90.0f)
+        {
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga
+            vTaskDelay(pdMS_TO_TICKS(100));            // Liga por 100ms
+            pwm_set_gpio_level(BUZZER_PIN, 0);         // Desliga
+            vTaskDelay(pdMS_TO_TICKS(100));            // Espera
+        }
+        else
+        {
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 2);  // Liga o buzzer contínuo
+            vTaskDelay(pdMS_TO_TICKS(100));            // Mantém
+        }
+    }
+}
+
+void vBotaoBombaTask(void *pvParameters)
+{
+    while (true)
+    {
+        acionar_bomba();
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
 //------------------------------------------------MAIN------------------------------------------------
 int main()
 {
@@ -243,6 +334,9 @@ int main()
     ssd1306_draw_string(&ssd, "WiFi => OK", 0, 0);
     ssd1306_draw_string(&ssd, ip_str, 0, 10);
     ssd1306_send_data(&ssd);
+    
+    // Filas
+    xFilaNivel = xQueueCreate(5, sizeof(uint16_t));
 
     start_http_server();                                // Inicia o servidor HTTP
 
@@ -256,6 +350,11 @@ int main()
     //Tasks
     xTaskCreate(vPollingTask, "Polling Task", 256, NULL, 1, NULL); 
     xTaskCreate(vDisplayTask, "Display Task", 256, ip_str_param, 1, NULL); // Cria a task de display
+    xTaskCreate(vLeituraNivelTask, "LeituraNivel", 256, NULL, 2, NULL);
+    xTaskCreate(vLedsRGBTask, "ControleRGB", 256, NULL, 2, NULL);
+    xTaskCreate(vBuzzerTask, "Task para o buzzer", 256, NULL, 1, NULL); 
+    xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL); 
+
 
     vTaskStartScheduler();          // Inicia o escalonador do FreeRTOS
     panic_unsupported();            // Se o escalonador falhar, entra em pânico
@@ -268,6 +367,17 @@ void setup(void){
     gpio_init(BOMBA);                // Inicializa o GPIO da bomba
     gpio_set_dir(BOMBA, GPIO_OUT);   // Define o GPIO como saída
     gpio_put(BOMBA, 0);              // Desliga a bomba inicialmente
+    
+    gpio_init(LED_PIN_GREEN);
+    gpio_set_dir(LED_PIN_GREEN, GPIO_OUT);
+
+    gpio_init(LED_PIN_BLUE);
+    gpio_set_dir(LED_PIN_BLUE, GPIO_OUT);
+
+    gpio_init(LED_PIN_RED);
+    gpio_set_dir(LED_PIN_RED, GPIO_OUT);
+
+    adc_gpio_init(SENSOR_NIVEL); 
 
     gpio_init(BOTAO_A);
     gpio_set_dir(BOTAO_A, GPIO_IN);
@@ -280,6 +390,8 @@ void setup(void){
     gpio_init(BOTAO_JOY);
     gpio_set_dir(BOTAO_JOY, GPIO_IN);
     gpio_pull_up(BOTAO_JOY);
+    
+    pwm_setup(BUZZER_PIN);
 
     adc_init();
     adc_gpio_init(JOYSTICK_X);
@@ -297,6 +409,19 @@ void setup(void){
     ssd1306_draw_string(&ssd, "Iniciando Wi-Fi", 0, 0);
     ssd1306_draw_string(&ssd, "Aguarde...", 0, 30);    
     ssd1306_send_data(&ssd);
+}
+
+// Faz a leitura da GPIO 22 para acionar a bomba
+void acionar_bomba()
+{
+    if (!gpio_get(BOTAO_JOY))  
+    {
+        estado_bomba = true;    
+    }
+    else
+    {
+        estado_bomba = false;
+    }
 }
 
 // Função de callback para enviar dados HTTP
