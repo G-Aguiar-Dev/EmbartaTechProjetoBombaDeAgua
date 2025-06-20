@@ -51,7 +51,7 @@
 
 ssd1306_t ssd;                                   // Variável para o display LCD
 static volatile float r = 0.0, b = 0.0, g = 0.0; // Variáveis para controlar a cor dos LEDs
-static volatile uint8_t volume_agua = 2;        // Variável para armazenar o volume de água (0-100%)
+static volatile uint8_t volume_agua = 0;        // Variável para armazenar o volume de água (0-100%)
 volatile bool estado_display = false;            // Estado do display OLED
 volatile bool estado_bomba = false;              // Estado do LED
 static uint32_t lastIrqTime = 0;                 // Registra o tempo da ultima interrupcao
@@ -63,6 +63,9 @@ double led_buffer[25][3] = {0}; // Buffer para armazenar o estado dos LEDs
 
 double apagar_leds[25][3] = // Apagar LEDs da matriz
     {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+
+double COORDENADA_BASE[PIXELS][3] = {
+    {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}};
 
 double COORDENADA_NIVEL_0[PIXELS][3] = {
     {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {1, 0, 0}};
@@ -354,27 +357,25 @@ void vMatriz_led_task()
 {
     while (true)
     {
-        switch (volume_agua)
-        {
-        case 0:
+        if (volume_agua == 0){
+            desenho_pio(COORDENADA_BASE, 0, pio, sm);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        else if (volume_agua > 0 && volume_agua <= 25){
             desenho_pio(COORDENADA_NIVEL_0, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-            break;
-
-        case 1:
+        }
+        else if (volume_agua > 25 && volume_agua <= 50){
             desenho_pio(COORDENADA_NIVEL_1, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-            break;
-
-        case 2:
+        }
+        else if (volume_agua > 50 && volume_agua <= 75){
             desenho_pio(COORDENADA_NIVEL_2, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-            break;
-
-        case 3:
+        }
+        else if (volume_agua > 75){
             desenho_pio(COORDENADA_NIVEL_3, 0, pio, sm);
             vTaskDelay(pdMS_TO_TICKS(500));
-            break;
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
