@@ -18,6 +18,7 @@
 #include "hardware/pio.h"           // Biblioteca de PIO
 #include "hardware/clocks.h"        // Biblioteca de clocks
 #include "hardware/pwm.h"           // Biblioteca de hardware para manipulação do PWM
+#include "queue.h"                 // Biblioteca de FreeRTOS para manipulação de filas
 
 #include "matriz_LED.pio.h"         // Biblioteca gerada pelo PIO para manipulação de uma matriz de LEDs
 #include "ssd1306.h"                // Biblioteca para manipulação de displays OLED SSD1306
@@ -27,7 +28,9 @@
 #define WIFI_SSID "Seu SSID"
 #define WIFI_PASS "Sua Senha"
 
+#define LED_PIN_GREEN 11
 #define LED_PIN_BLUE 12
+#define LED_PIN_RED 13
 #define BOTAO_A 5
 #define BOTAO_JOY 22
 #define JOYSTICK_X 26
@@ -60,6 +63,9 @@ struct http_state
     size_t len;
     size_t sent;
 };
+
+QueueHandle_t xFilaNivel; // Fila para leitura de nível do reservatório
+#define SENSOR_NIVEL 28    // Pino ADC conectado ao potenciômetro da boia
 
 //-------------------------------------------HTML-------------------------------------------
 const char HTML_BODY[] =
@@ -147,6 +153,33 @@ void vPollingTask(void *pvParameters)
     {
         cyw43_arch_poll();      // Polling do Wi-Fi para manter a conexão ativa
         vTaskDelay(1000);       // Aguarda 1 segundo antes de repetir
+    }
+}
+
+void vLeituraNivelTask(void *pvParameters) {
+    adc_select_input(2); // Canal 2 = GPIO28
+    while (1) {
+        uint16_t nivel = adc_read();
+        xQueueSend(xFilaNivel, &nivel, portMAX_DELAY); // Envia o valor para a fila
+        vTaskDelay(pdMS_TO_TICKS(500)); // Leitura a cada 500 ms
+    }
+}
+
+void vLedsRGBTask(void *pvParameters) {
+    uint16_t nivel;
+    while (1) {
+        if (xQueueReceive(xFilaNivel, &nivel, portMAX_DELAY)) {
+            if (nivel <= 1365) { // Nível Baixo - Verde
+                gpio_put(LED_PIN_GREEN, 1);
+                gpio_put(LED_PIN_RED, 0);
+            } else if (nivel <= 2730) { // Nível Médio - Amarelo
+                gpio_put(LED_PIN_GREEN, 1);
+                gpio_put(LED_PIN_RED, 1);
+            } else { // Nível Alto - Vermelho
+                gpio_put(LED_PIN_GREEN, 0);
+                gpio_put(LED_PIN_RED, 1);
+            }
+        }
     }
 }
 
@@ -239,9 +272,14 @@ int main()
     ssd1306_send_data(&ssd);
 
     start_http_server();            // Inicia o servidor HTTP
+    
+    // Filas
+    xFilaNivel = xQueueCreate(5, sizeof(uint16_t));
 
     //Tasks
     xTaskCreate(vPollingTask, "Polling Task", 256, NULL, 1, NULL); 
+    xTaskCreate(vLeituraNivelTask, "LeituraNivel", 256, NULL, 2, NULL);
+    xTaskCreate(vLedsRGBTask, "ControleRGB", 256, NULL, 2, NULL);
     xTaskCreate(vBuzzerTask, "Task para o buzzer", 256, NULL, 1, NULL); 
     xTaskCreate(vBotaoBombaTask, "Task para acionar a bomba", 256, NULL, 1, NULL); 
 
@@ -253,8 +291,16 @@ int main()
 // Função de configuração inicial
 void setup(void){
     
+    gpio_init(LED_PIN_GREEN);
+    gpio_set_dir(LED_PIN_GREEN, GPIO_OUT);
+
     gpio_init(LED_PIN_BLUE);
     gpio_set_dir(LED_PIN_BLUE, GPIO_OUT);
+
+    gpio_init(LED_PIN_RED);
+    gpio_set_dir(LED_PIN_RED, GPIO_OUT);
+
+    adc_gpio_init(SENSOR_NIVEL); 
 
     gpio_init(BOTAO_A);
     gpio_set_dir(BOTAO_A, GPIO_IN);
