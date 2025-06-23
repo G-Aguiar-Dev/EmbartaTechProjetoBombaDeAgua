@@ -24,8 +24,8 @@
 #include "font.h"           // Biblioteca de fontes para o display OLED
 
 //-------------------------------------------Definições-------------------------------------------
-#define WIFI_SSID "Malu"
-#define WIFI_PASS "11042006!"
+#define WIFI_SSID "Redmi Note 11S"
+#define WIFI_PASS "iuytrewq"
 
 #define BOMBA 20
 #define LED_PIN_GREEN 11
@@ -188,7 +188,7 @@ void vDisplayTask(void *pvParameters)
     char volume_str[8];
     while (true)
     {
-        snprintf(volume_str, sizeof(volume_str), "%d", *(int *)(&volume_agua));
+        snprintf(volume_str, sizeof(volume_str), "%d", (&volume_agua));
 
         if (estado_display) // Verifica se a flag está ativa, exibe informações sobre a rede
         {
@@ -242,7 +242,7 @@ void vLeituraNivelTask(void *pvParameters)
 {
     adc_select_input(2); // Canal 2 = GPIO28
     while (1) {
-        volume_agua = adc_read() / 4095.0 * 200; // Lê o valor do ADC e converte para porcentagem (0-100%)
+        volume_agua = (adc_read() / 4095.0 * 200); // Lê o valor do ADC e converte para porcentagem (0-100%)
         vTaskDelay(pdMS_TO_TICKS(100)); // Leitura a cada 100 ms
     }
 }
